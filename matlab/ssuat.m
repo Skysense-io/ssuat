@@ -22,7 +22,7 @@ function varargout = ssuat(varargin)
 
 % Edit the above text to modify the response to help ssuat
 
-% Last Modified by GUIDE v2.5 25-Jan-2022 10:23:51
+% Last Modified by GUIDE v2.5 04-Feb-2022 09:23:00
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -68,6 +68,10 @@ mn = get(handles.sl_phase, 'Min');
 mx = get(handles.sl_phase, 'Max');
 set(handles.sl_phase, 'SliderStep', [1 10] / (mx - mn));
 
+mn = get(handles.sl_timing, 'Min');
+mx = get(handles.sl_timing, 'Max');
+set(handles.sl_timing, 'SliderStep', [.1 1] / (mx - mn));
+
 vars = evalin('base','who');
 set(handles.pm_data,'String',vars);
 
@@ -88,6 +92,40 @@ function varargout = ssuat_OutputFcn(hObject, eventdata, handles)
 % Get default command line output from handles structure
 varargout{1} = handles.output;
 
+function [P,f]=spec(d, Fs)
+% Spectrum of signal
+if nargin < 2
+    Fs = 1;
+end
+ 
+P = abs(fftshift(fft(d)));
+f = linspace(-Fs*.5, Fs*.5, numel(P));
+ 
+function out = cexp(fc_over_fs, n, varargin)
+% function out = cexp(fc_over_fs, n, varargin)
+% Column-wise complex exponential
+% 
+if nargin == 2
+    if numel(n) == 1
+        r = n;
+        c = n;        
+    elseif numel(n) == 2
+        r = n(1);
+        c = n(2);
+    end
+elseif nargin == 3
+    r = n;
+    c = varargin{1};
+end
+
+out = nan(r, c) + 1i*nan(r, c);
+p = linspace(0, (r-1)*fc_over_fs, r)';
+x = exp( 1i * 2 * pi * p );
+for k = 1:c
+    out(: , k) = x;
+end
+
+
 function myplot(handles)
 
 data = handles.data;
@@ -96,13 +134,15 @@ if min(size(data)) > 1
     return
 end
 
+t = get(handles.sl_timing, 'Value' );
+
 fs = 8.333333333;
 p = get(handles.sl_phase, 'Value' );
 c = exp(1j*pi/180*p);
 %f = -1;
 f = get(handles.sl_coarse, 'Value' ) + .01*get(handles.sl_fine, 'Value' );
-lo = cexp(f/fs, size(data));
-bb = c * lo .* data;
+lo = cexp(f/fs, size(data)); % Local oscillator
+bb = c * lo .* data;         % Baseband
 
 [p_rf,f_rf] = spec(data, fs);
 [p_bb,f_bb] = spec(bb, fs);
@@ -120,7 +160,18 @@ plot(handles.axes4, f_bb, db(p_bb));
 handles.axes4.XLim = [-fs fs]*.5; 
 
 % FFT
-N_s = floor(numel(bb)/8);
+N_s = floor(( numel(bb) - ceil(t) ) / 8);
+
+
+x_interp = linspace(t, t + N_s*8, N_s*8 );
+% x_interp = [t + 1 : 1 : N_s*8 + t + 1];
+% 
+% while x_interp(end) > N_s*8 + 1
+%     x_interp = x_interp(1:end - 1);
+% end
+
+bb = interp1( bb, x_interp );
+
 specgram = zeros(8,N_s);
 for s = 1:N_s
     st = (s-1)*8+1;
@@ -140,6 +191,7 @@ e_lo = db(sum(p_bb(1:idx_lo)));
 e_hi = db(sum(p_bb(idx_lo+1:end)));
 s{3} = ['e_lo  : '  num2str(e_lo) ];
 s{4} = ['e_hi  : '  num2str(e_hi) ];
+s{5} = ['t     : '  num2str(t) ];
 
 set(handles.txt_info, 'String', s );
 
@@ -236,6 +288,28 @@ myplot(handles);
 % --- Executes during object creation, after setting all properties.
 function sl_phase_CreateFcn(hObject, eventdata, handles)
 % hObject    handle to sl_phase (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: slider controls usually have a light gray background.
+if isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor',[.9 .9 .9]);
+end
+
+
+% --- Executes on slider movement.
+function sl_timing_Callback(hObject, eventdata, handles)
+% hObject    handle to sl_timing (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'Value') returns position of slider
+%        get(hObject,'Min') and get(hObject,'Max') to determine range of slider
+myplot(handles);
+
+% --- Executes during object creation, after setting all properties.
+function sl_timing_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to sl_timing (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    empty - handles not created until after all CreateFcns called
 
